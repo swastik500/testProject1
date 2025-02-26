@@ -82,7 +82,15 @@ def student_dashboard():
     if session.get('loggedin') and session.get('role') == 'student':
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT subject_name, percentage FROM attendance WHERE student_id = %s", (session['id'],))
+        cursor.execute("""
+            SELECT subjects.subject_name, 
+                   (COUNT(CASE WHEN attendance.status = 'Present' THEN 1 END) * 100 / COUNT(*)) AS percentage
+            FROM attendance
+            JOIN subjects ON attendance.subject_id = subjects.id
+            WHERE attendance.student_id = %s
+            GROUP BY subjects.subject_name
+        """, (session['id'],))
+
         records = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -118,6 +126,31 @@ def add_course():
     else:
         flash('Unauthorized access!', 'danger')
     return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/mark_attendance', methods=['POST'])
+def mark_attendance():
+    student_id = request.form.get('student_id')
+    subject_id = request.form.get('subject_id')
+    status = request.form.get('status')
+
+    if not all([student_id, subject_id, status]):
+        flash("Missing data. Please try again.", "danger")
+        return redirect(url_for('teacher_dashboard'))
+
+    try:
+        cursor = mysql.connection.cursor()
+        cursor.execute(
+            "INSERT INTO attendance (student_id, subject_id, date, status) VALUES (%s, %s, CURDATE(), %s)",
+            (student_id, subject_id, status)
+        )
+        mysql.connection.commit()
+        cursor.close()
+        flash("Attendance marked successfully!", "success")
+    except Exception as e:
+        flash(f"Error: {str(e)}", "danger")
+
+    return redirect(url_for('teacher_dashboard'))
 
 
 # Register User
@@ -159,4 +192,4 @@ def logout():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
