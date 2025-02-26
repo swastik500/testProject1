@@ -1,6 +1,7 @@
 from flask import Flask, request, redirect, url_for, session, flash, render_template
 import mysql.connector
 from werkzeug.security import generate_password_hash, check_password_hash
+import os
 
 app = Flask(__name__)
 app.secret_key = "your_secret_key"  # Change this to a strong secret key for session security
@@ -9,12 +10,13 @@ app.secret_key = "your_secret_key"  # Change this to a strong secret key for ses
 # Function to get database connection
 def get_db_connection():
     return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="root",
-        database="attendance_c",
-        port=3308
+        host=os.getenv("DB_HOST", "localhost"),
+        user=os.getenv("DB_USER", "root"),
+        password=os.getenv("DB_PASSWORD", "root"),
+        database=os.getenv("DB_NAME", "attendance_c"),
+        port=int(os.getenv("DB_PORT", 3308))  # Default to 3308 as per your previous config
     )
+
 
 
 # Home Route
