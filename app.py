@@ -5,6 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = "your_secret_key"  # Change this to a strong secret key for session security
 
+
 # Function to get database connection
 def get_db_connection():
     return mysql.connector.connect(
@@ -21,6 +22,8 @@ def get_db_connection():
 def home():
     return render_template('index.html')
 
+
+# Login Route
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -35,65 +38,37 @@ def login():
         conn.close()
 
         if user and check_password_hash(user["password"], password):
-            session['loggedin'] = True
-            session['name'] = user["name"]
-            session['role'] = user["role"]
-            session['id'] = user["id"]
-
-            if user["role"] == "admin":
-                return redirect(url_for('admin_dashboard'))
-            elif user["role"] == "teacher":
-                return redirect(url_for('teacher_dashboard'))
-            elif user["role"] == "student":
-                return redirect(url_for('student_dashboard'))
+            session.update({
+                'loggedin': True,
+                'name': user["name"],
+                'role': user["role"],
+                'id': user["id"]
+            })
+            return redirect(url_for(f'{user["role"]}_dashboard'))
         else:
             flash("Invalid email or password", "danger")
 
     return render_template('login.html')
 
-@app.route('/admin/add_user', methods=['POST'])
-def add_user():
-    if 'loggedin' in session and session['role'] == 'admin':
-        name = request.form['name']
-        email = request.form['email']
-        password = request.form['password']
-        role = request.form['role']
 
-        hashed_password = generate_password_hash(password)
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute("INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, %s)",
-                           (name, email, hashed_password, role))
-            conn.commit()
-            flash("User added successfully!", "success")
-        except mysql.connector.Error as err:
-            flash(f"Error: {err}", "danger")
-        finally:
-            cursor.close()
-            conn.close()
-
-        return redirect(url_for('admin_dashboard'))
-
-    flash("Unauthorized action!", "danger")
-    return redirect(url_for('login'))
-
+# Admin Dashboard
 @app.route('/admin')
 def admin_dashboard():
-    if 'loggedin' in session and session['role'] == 'admin':
+    if session.get('loggedin') and session.get('role') == 'admin':
         return render_template('admin_dashboard.html')
     flash("Unauthorized access!", "danger")
     return redirect(url_for('login'))
 
 
+# Teacher Dashboard
 @app.route('/teacher')
 def teacher_dashboard():
-    if 'loggedin' in session and session['role'] == 'teacher':
+    if session.get('loggedin') and session.get('role') == 'teacher':
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT * FROM subjects WHERE teacher_id = %s", (session['id'],))
         subjects = cursor.fetchall()
+        cursor.close()
         conn.close()
         return render_template('teacher_dashboard.html', subjects=subjects)
 
@@ -101,47 +76,54 @@ def teacher_dashboard():
     return redirect(url_for('login'))
 
 
+# Student Dashboard
 @app.route('/student')
 def student_dashboard():
-    if 'loggedin' in session and session['role'] == 'student':
+    if session.get('loggedin') and session.get('role') == 'student':
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM attendance WHERE student_id = %s", (session['id'],))
-        attendance_records = cursor.fetchall()
+        cursor.execute("SELECT subject_name, percentage FROM attendance WHERE student_id = %s", (session['id'],))
+        records = cursor.fetchall()
+        cursor.close()
         conn.close()
-        return render_template('student_dashboard.html', attendance_records=attendance_records)
+
+        # Convert list of records to dictionary (if needed by template)
+        attendance = {record["subject_name"]: record["percentage"] for record in records}
+
+        return render_template('student_dashboard.html', attendance=attendance)
 
     flash("Unauthorized access!", "danger")
     return redirect(url_for('login'))
 
+
+
+# Add Course
 @app.route('/add_course', methods=['POST'])
 def add_course():
-    if 'loggedin' not in session or session.get('role') != 'admin':
+    if session.get('loggedin') and session.get('role') == 'admin':
+        course_name = request.form.get('course_name')
+        if not course_name:
+            flash('Course name is required!', 'warning')
+        else:
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO courses (name) VALUES (%s)", (course_name,))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                flash('Course added successfully!', 'success')
+            except Exception as e:
+                flash(f'Error: {str(e)}', 'danger')
+    else:
         flash('Unauthorized access!', 'danger')
-        return redirect(url_for('login'))
-
-    course_name = request.form.get('course_name')
-
-    if not course_name:
-        flash('Course name is required!', 'warning')
-        return redirect(url_for('admin_dashboard'))
-
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO courses (name) VALUES (%s)", (course_name,))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        flash('Course added successfully!', 'success')
-    except Exception as e:
-        flash(f'Error: {str(e)}', 'danger')
-
     return redirect(url_for('admin_dashboard'))
 
+
+# Register User
 @app.route('/register_user', methods=['POST'])
 def register_user():
-    if 'loggedin' in session and session['role'] == 'admin':
+    if session.get('loggedin') and session.get('role') == 'admin':
         name = request.form['name']
         email = request.form['email']
         password = request.form['password']
@@ -149,9 +131,9 @@ def register_user():
 
         hashed_password = generate_password_hash(password)
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
         try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
             cursor.execute("INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, %s)",
                            (name, email, hashed_password, role))
             conn.commit()
@@ -167,11 +149,14 @@ def register_user():
     flash("Unauthorized action!", "danger")
     return redirect(url_for('login'))
 
+
+# Logout Route
 @app.route('/logout')
 def logout():
     session.clear()
     flash("Logged out successfully!", "info")
     return redirect(url_for('login'))
+
 
 if __name__ == '__main__':
     app.run(debug=True)

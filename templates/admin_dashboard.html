@@ -59,6 +59,14 @@
             </li>
             {% endfor %}
         </ul>
+        {% if attendance_records %}
+            {% for course, percentage in attendance_records.items() %}
+                <p>{{ course }}: {{ percentage }}%</p>
+            {% endfor %}
+        {% else %}
+            <p>No attendance records found.</p>
+        {% endif %}
+
     </div>
 </body>
 </html>
